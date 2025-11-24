@@ -2,3 +2,7 @@ data/
 zh_core_web_sm-3.8.0-py3-none-any.whl
 ex2/data
 instructions.txt
+
+logs/   
+
+ex1/logs/

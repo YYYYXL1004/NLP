@@ -14,6 +14,7 @@ plt.switch_backend('Agg')
 DATA_DIR = "./data"
 CWS_FILE = os.path.join(DATA_DIR, "中文分词.txt")
 POS_FILE = os.path.join(DATA_DIR, "词性标注.tsv")
+NER_FILE = os.path.join(DATA_DIR, "命名实体识别.tsv")
 MODEL_NAME = "zh_core_web_sm"
 REPORT_FILE = "evaluation_report.txt"
 IMG_DIR = "images"
@@ -39,6 +40,14 @@ PKU_TO_CTB_MAP = {
     'w': 'PU',
     # 注意：这只是基础映射，spaCy 实际上有很多细分标签，如 DEC, DEG, AS, SP 等
     # 如果想提高准确率，需要更细致的分析
+}
+
+# NER 映射表: SpaCy (OntoNotes) -> 数据集标签
+SPACY_TO_NER_MAP = {
+    'PERSON': 'nr',
+    'ORG': 'nt',
+    'GPE': 'ns',
+    'LOC': 'ns'
 }
 
 def load_cws_data(file_path):
@@ -80,21 +89,23 @@ def load_pos_data(file_path):
         sentences.append((current_words, current_tags))
     return sentences
 
+load_ner_data = load_pos_data
+
 def log_to_file(message):
     """记录日志到文件"""
     with open(REPORT_FILE, 'a', encoding='utf-8') as f:
         f.write(message + "\n")
     print(message)
 
-def plot_cws_metrics(precision, recall, f1):
-    """绘制分词评价指标柱状图"""
+def plot_metrics(precision, recall, f1, title, filename):
+    """通用指标绘制函数"""
     metrics = ['Precision', 'Recall', 'F1-Score']
     values = [precision, recall, f1]
     
     plt.figure(figsize=(8, 6))
     bars = plt.bar(metrics, values, color=['skyblue', 'lightgreen', 'salmon'])
     plt.ylim(0, 1.1)
-    plt.title('Chinese Word Segmentation Performance')
+    plt.title(title)
     plt.ylabel('Score')
     
     for bar in bars:
@@ -103,9 +114,9 @@ def plot_cws_metrics(precision, recall, f1):
                  f'{height:.4f}',
                  ha='center', va='bottom')
                  
-    plt.savefig(os.path.join(IMG_DIR, 'cws_metrics.png'))
+    plt.savefig(os.path.join(IMG_DIR, filename))
     plt.close()
-    log_to_file(f"[图片生成] 分词指标图已保存至 {IMG_DIR}/cws_metrics.png")
+    log_to_file(f"[图片生成] {title}已保存至 {IMG_DIR}/{filename}")
 
 def evaluate_cws(nlp, data):
     """评估分词效果 (P, R, F1)"""
@@ -149,7 +160,7 @@ def evaluate_cws(nlp, data):
     log_to_file(f"[CWS 结果] Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1_score:.4f}")
     
     # 绘图
-    plot_cws_metrics(precision, recall, f1_score)
+    plot_metrics(precision, recall, f1_score, 'Chinese Word Segmentation Performance', 'cws_metrics.png')
     
     return error_cases
 
@@ -234,6 +245,55 @@ def evaluate_pos(nlp, data):
     # 绘制混淆矩阵
     plot_confusion_matrix_custom(y_true_all, y_pred_all, top_n=15)
 
+def evaluate_ner(nlp, data):
+    """评估命名实体识别效果 (P, R, F1)"""
+    log_to_file(f"\n{'='*20} 命名实体识别评估 {'='*20}")
+    log_to_file(f"总句子数: {len(data)}")
+    
+    tp = 0
+    fp = 0
+    fn = 0
+    
+    # 这里的 "interval" 定义为 (token_index, label)
+    # 这种粒度介于 Token-level 和 Entity-level 之间
+    # 考虑到数据集分词粒度较粗，单个词往往就是一个实体，这种对齐是合理的。
+    
+    for words, gold_tags in data:
+        doc = Doc(nlp.vocab, words=words)
+        # 运行 NER
+        if 'ner' in nlp.pipe_names:
+            doc = nlp.get_pipe('ner')(doc)
+        
+        # 构建 Gold 集合: {(index, label)}
+        gold_entities = set()
+        for i, tag in enumerate(gold_tags):
+            if tag in ['nr', 'ns', 'nt']:
+                gold_entities.add((i, tag))
+        
+        # 构建 Pred 集合
+        pred_entities = set()
+        for ent in doc.ents:
+            mapped_label = SPACY_TO_NER_MAP.get(ent.label_)
+            if mapped_label:
+                # 将 span 映射回 token index
+                for i in range(ent.start, ent.end):
+                    pred_entities.add((i, mapped_label))
+        
+        # 计算指标
+        correct = len(gold_entities & pred_entities)
+        tp += correct
+        fp += len(pred_entities) - correct
+        fn += len(gold_entities) - correct
+        
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+    
+    log_to_file(f"[NER 结果] Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1_score:.4f}")
+    
+    # 绘图
+    plot_metrics(precision, recall, f1_score, 'NER Performance', 'ner_metrics.png')
+
 def main():
     # 清空旧日志
     if os.path.exists(REPORT_FILE):
@@ -266,6 +326,13 @@ def main():
         evaluate_pos(nlp, pos_data)
     else:
         log_to_file(f"未找到词性标注数据: {POS_FILE}")
+        
+    # 3. 命名实体识别
+    if os.path.exists(NER_FILE):
+        ner_data = load_ner_data(NER_FILE)
+        evaluate_ner(nlp, ner_data)
+    else:
+        log_to_file(f"未找到命名实体识别数据: {NER_FILE}")
         
     print(f"\n所有结果已保存至 {REPORT_FILE}")
     print(f"图片已保存至 {IMG_DIR}/ 目录")

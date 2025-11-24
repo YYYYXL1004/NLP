@@ -2,7 +2,7 @@
 ==================== 分词任务评估 ====================
 总样本数: 1000
 [CWS 结果] Precision: 0.8476, Recall: 0.8578, F1: 0.8527
-[图片生成] 分词指标图已保存至 images/cws_metrics.png
+[图片生成] Chinese Word Segmentation Performance已保存至 images/cws_metrics.png
 
 [扩展分析] 记录分词 F1 < 0.6 的样本 (Top 5):
 样本 1: 金丹乳酸公司年可加工玉米２万吨，增值４０００万元。
@@ -30,3 +30,8 @@
 总句子数: 500
 [POS 结果] Accuracy: 0.7317
 [图片生成] 词性标注混淆矩阵已保存至 images/pos_confusion_matrix.png
+
+==================== 命名实体识别评估 ====================
+总句子数: 500
+[NER 结果] Precision: 0.7515, Recall: 0.5651, F1: 0.6451
+[图片生成] NER Performance已保存至 images/ner_metrics.png
