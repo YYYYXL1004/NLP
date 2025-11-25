@@ -98,6 +98,18 @@ def main():
     sims = [r['sim'] for r in results]
     oovs = [r['oov_avg'] for r in results]
     
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 6))
+    plt.hist(sims, bins=30, color='#6baed6', edgecolor='black', alpha=0.7)
+    plt.title('Similarity Distribution: Human vs ChatGPT')
+    plt.xlabel('Cosine Similarity')
+    plt.ylabel('Frequency')
+    plt.axvline(np.mean(sims), color='r', linestyle='--', label=f'Mean: {np.mean(sims):.4f}')
+    plt.legend()
+    plt.grid(axis='y', alpha=0.3)
+    plt.savefig(os.path.join(BASE_DIR, 'sim_dist.png'))
+    print("相似度分布图已保存至: sim_dist.png")
+
     print(f"分析报告 (Analysis Report)")
     print("="*40)
     print(f"样本总数: {len(results)}")
