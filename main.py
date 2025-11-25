@@ -2,6 +2,8 @@ import spacy
 from spacy.tokens import Doc
 import matplotlib.pyplot as plt
 import os
+from sklearn.metrics import ConfusionMatrixDisplay
+import collections
 
 # 解决绘图报错
 plt.switch_backend('Agg')
@@ -136,6 +138,9 @@ def evaluate_pos(nlp, data):
     correct = 0
     total = 0
     
+    all_gold = []
+    all_pred = []
+    
     for i, (words, gold_tags) in enumerate(data):
         doc = Doc(nlp.vocab, words=words)
         for _, proc in nlp.pipeline:
@@ -148,9 +153,13 @@ def evaluate_pos(nlp, data):
             if j >= len(gold_tags): break
             gold = gold_tags[j]
             gold = PKU_TO_CTB_MAP.get(gold, gold)
-            pred_tags.append(token.tag_)
+            pred = token.tag_
             
-            if token.tag_ == gold:
+            all_gold.append(gold)
+            all_pred.append(pred)
+            pred_tags.append(pred)
+            
+            if pred == gold:
                 correct += 1
             else:
                 has_error = True
@@ -161,7 +170,33 @@ def evaluate_pos(nlp, data):
             
     acc = correct / total if total > 0 else 0
     print(f"POS 准确率: {acc:.4f}")
-    plot_metrics(['Accuracy'], [acc], 'POS Accuracy', 'pos.png')
+    
+    # 绘制混淆矩阵
+    print("正在绘制 POS 混淆矩阵...")
+    counter = collections.Counter(all_gold)
+    top_labels = [k for k, v in counter.most_common(10)] # 改成10个防拥挤
+    
+    f_gold = []
+    f_pred = []
+    for g, p in zip(all_gold, all_pred):
+        if g in top_labels and p in top_labels:
+            f_gold.append(g)
+            f_pred.append(p)
+            
+    fig, ax = plt.subplots(figsize=(12, 10))
+    ConfusionMatrixDisplay.from_predictions(
+        f_gold, f_pred, 
+        normalize='true', 
+        cmap='Blues', 
+        values_format='.2f',
+        ax=ax,
+        xticks_rotation=45
+    )
+    plt.title(f'POS Confusion Matrix (Top {len(top_labels)} Tags)', fontsize=14, pad=15)
+    plt.tight_layout()
+    plt.savefig(f"{IMG_DIR}/pos_confusion.png", dpi=300)
+    print(f"图保存到了 pos_confusion.png")
+    plt.close()
 
 def evaluate_ner(nlp, data):
     print("正在评估命名实体识别...")
@@ -239,23 +274,12 @@ def interactive_demo(nlp):
         print(f"实体: {ents}")
 
 def main():
-    try:
-        nlp = spacy.load("zh_core_web_sm")
-    except:
-        print("没找到模型，请安装 zh_core_web_sm")
-        return
-
-    if os.path.exists(CWS_FILE):
-        evaluate_cws(nlp, load_cws_data(CWS_FILE))
-        
-    if os.path.exists(POS_FILE):
-        evaluate_pos(nlp, load_pos_data(POS_FILE))
-        
-    if os.path.exists(NER_FILE):
-        evaluate_ner(nlp, load_ner_data(NER_FILE))
+    nlp = spacy.load("zh_core_web_sm")
+    evaluate_cws(nlp, load_cws_data(CWS_FILE))
+    evaluate_pos(nlp, load_pos_data(POS_FILE))
+    evaluate_ner(nlp, load_ner_data(NER_FILE))
         
     print(f"\n错误报告已保存至 {BAD_CASE_FILE}")
-    
     a = input("\n是否进入演示模式? (y/n): ")
     if a == 'y':
         interactive_demo(nlp)
