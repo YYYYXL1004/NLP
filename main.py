@@ -10,6 +10,7 @@ CWS_FILE = "./data/中文分词.txt"
 POS_FILE = "./data/词性标注.tsv"
 NER_FILE = "./data/命名实体识别.tsv"
 IMG_DIR = "images"
+BAD_CASE_FILE = "bad_cases.txt"
 
 if not os.path.exists(IMG_DIR):
     os.makedirs(IMG_DIR)
@@ -24,6 +25,14 @@ PKU_TO_CTB_MAP = {
 SPACY_TO_NER_MAP = {
     'PERSON': 'nr', 'ORG': 'nt', 'GPE': 'ns', 'LOC': 'ns'
 }
+
+def save_bad_case(task, text, gold, pred):
+    with open(BAD_CASE_FILE, 'a', encoding='utf-8') as f:
+        f.write(f"[{task}] 错误样本:\n")
+        f.write(f"Text: {text}\n")
+        f.write(f"Gold: {gold}\n")
+        f.write(f"Pred: {pred}\n")
+        f.write("-" * 30 + "\n")
 
 def load_cws_data(file_path):
     data = []
@@ -80,11 +89,15 @@ def get_intervals(words):
 
 def evaluate_cws(nlp, data):
     print("正在评估分词...")
+    
+    if os.path.exists(BAD_CASE_FILE):
+        os.remove(BAD_CASE_FILE)
+        
     tp = 0
     fp = 0
     fn = 0
     
-    for raw_text, gold_words in data:
+    for i, (raw_text, gold_words) in enumerate(data):
         doc = nlp(raw_text)
         pred_words = [t.text for t in doc]
         
@@ -95,6 +108,9 @@ def evaluate_cws(nlp, data):
         tp += correct
         fp += len(pred_inv) - correct
         fn += len(gold_inv) - correct
+        
+        if gold_inv != pred_inv and i < 5:
+            save_bad_case("分词", raw_text, gold_words, pred_words)
         
     p = tp / (tp + fp) if (tp + fp) > 0 else 0
     r = tp / (tp + fn) if (tp + fn) > 0 else 0
@@ -108,27 +124,41 @@ def evaluate_pos(nlp, data):
     correct = 0
     total = 0
     
-    for words, gold_tags in data:
+    for i, (words, gold_tags) in enumerate(data):
         doc = Doc(nlp.vocab, words=words)
         for _, proc in nlp.pipeline:
             doc = proc(doc)
             
-        for i, token in enumerate(doc):
-            if i >= len(gold_tags): break
-            gold = gold_tags[i]
+        pred_tags = []
+        has_error = False
+        
+        for j, token in enumerate(doc):
+            if j >= len(gold_tags): break
+            gold = gold_tags[j]
             gold = PKU_TO_CTB_MAP.get(gold, gold)
+            pred_tags.append(token.tag_)
+            
             if token.tag_ == gold:
                 correct += 1
+            else:
+                has_error = True
             total += 1
+            
+        if has_error and i < 5:
+            save_bad_case("词性", "".join(words), gold_tags, pred_tags)
             
     acc = correct / total if total > 0 else 0
     print(f"POS 准确率: {acc:.4f}")
 
 def evaluate_ner(nlp, data):
     print("正在评估命名实体识别...")
-    tp = 0
-    fp = 0
-    fn = 0
+    
+    stats = {
+        'ALL': {'tp': 0, 'fp': 0, 'fn': 0},
+        'nr': {'tp': 0, 'fp': 0, 'fn': 0},
+        'ns': {'tp': 0, 'fp': 0, 'fn': 0},
+        'nt': {'tp': 0, 'fp': 0, 'fn': 0}
+    }
     
     for words, gold_tags in data:
         doc = Doc(nlp.vocab, words=words)
@@ -147,17 +177,53 @@ def evaluate_ner(nlp, data):
                 for i in range(ent.start, ent.end):
                     pred_ents.add((i, mapped))
                     
-        correct = len(gold_ents & pred_ents)
-        tp += correct
-        fp += len(pred_ents) - correct
-        fn += len(gold_ents) - correct
-        
-    p = tp / (tp + fp) if (tp + fp) > 0 else 0
-    r = tp / (tp + fn) if (tp + fn) > 0 else 0
-    f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0
+        for label in ['nr', 'ns', 'nt']:
+            g = {x for x in gold_ents if x[1] == label}
+            p = {x for x in pred_ents if x[1] == label}
+            c = len(g & p)
+            stats[label]['tp'] += c
+            stats[label]['fp'] += len(p) - c
+            stats[label]['fn'] += len(g) - c
+            
+            stats['ALL']['tp'] += c
+            stats['ALL']['fp'] += len(p) - c
+            stats['ALL']['fn'] += len(g) - c
+            
+    print("\n" + "="*45)
+    print(f"{'Type':<10} {'Precision':<10} {'Recall':<10} {'F1':<10}")
+    print("-" * 45)
     
-    print(f"NER结果: P={p:.4f}, R={r:.4f}, F1={f1:.4f}")
-    plot_metrics(p, r, f1, 'NER Metrics', 'ner.png')
+    final_p, final_r, final_f1 = 0, 0, 0
+    
+    for k in ['ALL', 'nr', 'ns', 'nt']:
+        s = stats[k]
+        tp, fp, fn = s['tp'], s['fp'], s['fn']
+        p = tp / (tp + fp) if (tp + fp) > 0 else 0
+        r = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0
+        
+        if k == 'ALL':
+            final_p, final_r, final_f1 = p, r, f1
+            
+        print(f"{k:<10} {p:<10.4f} {r:<10.4f} {f1:<10.4f}")
+    print("="*45 + "\n")
+    
+    plot_metrics(final_p, final_r, final_f1, 'NER Metrics', 'ner.png')
+
+def interactive_demo(nlp):
+    print("\n" + "="*30)
+    print("交互演示系统 (输入 'q' 退出)")
+    print("="*30)
+    while True:
+        text = input("\n请输入文本: ")
+        if text == 'q': break
+        
+        doc = nlp(text)
+        print(f"分词: {[t.text for t in doc]}")
+        print(f"词性: {[t.tag_ for t in doc]}")
+        
+        ents = [(e.text, e.label_) for e in doc.ents]
+        print(f"实体: {ents}")
 
 def main():
     try:
@@ -174,6 +240,12 @@ def main():
         
     if os.path.exists(NER_FILE):
         evaluate_ner(nlp, load_ner_data(NER_FILE))
+        
+    print(f"\n错误报告已保存至 {BAD_CASE_FILE}")
+    
+    a = input("\n是否进入演示模式? (y/n): ")
+    if a == 'y':
+        interactive_demo(nlp)
 
 if __name__ == "__main__":
     main()
