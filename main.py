@@ -70,11 +70,23 @@ def load_pos_data(file_path):
 
 load_ner_data = load_pos_data
 
-def plot_metrics(p, r, f1, title, filename):
+def plot_metrics(names, values, title, filename):
     plt.figure(figsize=(8, 6))
-    plt.bar(['Precision', 'Recall', 'F1'], [p, r, f1])
+    colors = ['#8ecfc9', '#ffbe7a', '#fa7f6f', '#82b0d2']
+    
+    bar_colors = colors[:len(names)] if len(names) <= len(colors) else colors * (len(names) // len(colors) + 1)
+    
+    bars = plt.bar(names, values, color=bar_colors, width=0.5)
     plt.title(title)
-    plt.ylim(0, 1.0)
+    plt.ylim(0, 1.15)
+    plt.grid(axis='y', linestyle='--', alpha=0.3)
+    
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                 f'{height:.4f}',
+                 ha='center', va='bottom', fontsize=10)
+                 
     plt.savefig(f"{IMG_DIR}/{filename}")
     print(f"图保存到了 {filename}")
     plt.close()
@@ -117,7 +129,7 @@ def evaluate_cws(nlp, data):
     f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0
     
     print(f"分词结果: P={p:.4f}, R={r:.4f}, F1={f1:.4f}")
-    plot_metrics(p, r, f1, 'CWS Metrics', 'cws.png')
+    plot_metrics(['Precision', 'Recall', 'F1'], [p, r, f1], 'CWS Metrics', 'cws.png')
 
 def evaluate_pos(nlp, data):
     print("正在评估词性标注...")
@@ -149,6 +161,7 @@ def evaluate_pos(nlp, data):
             
     acc = correct / total if total > 0 else 0
     print(f"POS 准确率: {acc:.4f}")
+    plot_metrics(['Accuracy'], [acc], 'POS Accuracy', 'pos.png')
 
 def evaluate_ner(nlp, data):
     print("正在评估命名实体识别...")
@@ -208,7 +221,7 @@ def evaluate_ner(nlp, data):
         print(f"{k:<10} {p:<10.4f} {r:<10.4f} {f1:<10.4f}")
     print("="*45 + "\n")
     
-    plot_metrics(final_p, final_r, final_f1, 'NER Metrics', 'ner.png')
+    plot_metrics(['Precision', 'Recall', 'F1'], [final_p, final_r, final_f1], 'NER Metrics', 'ner.png')
 
 def interactive_demo(nlp):
     print("\n" + "="*30)
